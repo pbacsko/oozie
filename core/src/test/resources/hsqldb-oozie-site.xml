@@ -28,6 +28,6 @@
     </property>
     <property>
         <name>oozie.service.JPAService.jdbc.url</name>
-        <value>jdbc:hsqldb:file:/home/bacskop/oozie-hsqldb-log;create=true;hsqldb.sqllog=3</value>
+        <value>jdbc:hsqldb:file:/home/jenkins/oozie-hsqldb-log;create=true;hsqldb.sqllog=3</value>
     </property>
 </configuration>
