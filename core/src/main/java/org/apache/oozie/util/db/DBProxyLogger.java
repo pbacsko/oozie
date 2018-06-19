@@ -33,8 +33,8 @@ public class DBProxyLogger extends AbstractQueryLoggingListener {
     @Override
     protected void writeLog(String message) {
         Exception e = new Exception("trace");
-        // LOG.info(message, e);
+        LOG.info(message, e);
         System.out.println(message);
-        // e.printStackTrace(System.out);
+        e.printStackTrace(System.out);
     }
 }
