@@ -19,11 +19,15 @@
 -->
 <configuration>
     <property>
+        <name>oozie.service.JPAService.connection.data.source</name>
+        <value>org.apache.oozie.util.db.DataSourceProxy</value>
+    </property>
+    <property>
         <name>oozie.service.JPAService.jdbc.driver</name>
         <value>org.hsqldb.jdbcDriver</value>
     </property>
     <property>
         <name>oozie.service.JPAService.jdbc.url</name>
-        <value>jdbc:hsqldb:mem:oozie-db;create=true</value>
+        <value>jdbc:hsqldb:file:/home/bacskop/oozie-hsqldb-log;create=true;hsqldb.sqllog=3</value>
     </property>
 </configuration>

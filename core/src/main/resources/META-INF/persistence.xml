@@ -43,7 +43,7 @@
         <class>org.apache.oozie.util.db.ValidateConnectionBean</class>
 
         <properties>
-            <property name="openjpa.ConnectionDriverName" value="org.apache.oozie.util.db.BasicDataSourceWrapper"/>
+            <property name="openjpa.ConnectionDriverName" value="org.apache.oozie.util.db.DataSourceProxy"/>
 
             <property name="openjpa.ConnectionProperties" value="**INVALID**"/> <!--Set by StoreService at init time -->
 
@@ -76,7 +76,7 @@
             <property name="openjpa.jdbc.DBDictionary" value="batchLimit=50"/>
             <property name="openjpa.RuntimeUnenhancedClasses" value="unsupported"/>
             <property name="openjpa.Log" value="log4j"/>
-            <property name="openjpa.Log" value="Tool=WARN"/>
+            <property name="openjpa.ConnectionFactoryProperties" value="PrintParameters=true" />
         </properties>
     </persistence-unit>
 

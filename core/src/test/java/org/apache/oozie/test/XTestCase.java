@@ -316,6 +316,8 @@ public abstract class XTestCase extends TestCase {
      * @throws Exception if the test workflow working directory could not be created or there was a problem cleaning the database
      */
     protected  void setUp(boolean cleanUpDBTables) throws Exception {
+        System.out.println("**** Configfile: " + System.getProperty("oozie.test.config.file"));
+        System.out.println("**** TestDB: " + System.getProperty("oozie.test.db"));
         RUNNING_TESTCASES.incrementAndGet();
         super.setUp();
         // if for some reason the tearDown didn`t run, check and delete the files
@@ -523,7 +525,11 @@ public abstract class XTestCase extends TestCase {
                 return name.endsWith(".log") || name.endsWith("log4j.properties") || name.equals(LauncherMain.PROPAGATION_CONF_XML);
             }
         });
-        return new ArrayList<>(Arrays.asList(filesToDelete));
+        if (filesToDelete != null) {
+            return new ArrayList<>(Arrays.asList(filesToDelete));
+        } else {
+            return new ArrayList<File>();
+        }
     }
 
 
@@ -731,16 +737,21 @@ public abstract class XTestCase extends TestCase {
      */
     protected void setSystemProperty(String name, String value) {
         if (sysProps == null) {
+            System.out.println("++++ Creating sysProps map");
             sysProps = new HashMap<String, String>();
         }
         if (!sysProps.containsKey(name)) {
             String currentValue = System.getProperty(name);
             sysProps.put(name, currentValue);
+            System.out.println("++++ Adding current value to sysprops - name: " + name
+                     + "  value: " + currentValue);
         }
         if (value != null) {
             System.setProperty(name, value);
+            System.out.println("++++ Setting property " + name + " to " + value);
         }
         else {
+            System.out.println("++++ Removing property: " + name);
             System.getProperties().remove(name);
         }
     }
@@ -750,11 +761,15 @@ public abstract class XTestCase extends TestCase {
      */
     private void resetSystemProperties() {
         if (sysProps != null) {
+            System.out.println("++++ Sysprops != null");
             for (Map.Entry<String, String> entry : sysProps.entrySet()) {
                 if (entry.getValue() != null) {
                     System.setProperty(entry.getKey(), entry.getValue());
+                    System.out.println("++++ Setting property back - " + entry.getKey() + " -> "
+                            + entry.getValue());
                 }
                 else {
+                    System.out.println("++++ Removing property: " + entry.getKey());
                     System.getProperties().remove(entry.getKey());
                 }
             }

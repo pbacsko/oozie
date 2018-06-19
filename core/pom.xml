@@ -507,6 +507,13 @@
             <artifactId>hive-jdbc</artifactId>
             <scope>compile</scope>
         </dependency>
+
+        <dependency>
+            <groupId>net.ttddyy</groupId>
+            <artifactId>datasource-proxy</artifactId>
+            <version>1.4.9</version>
+            <scope>compile</scope>
+        </dependency>
     </dependencies>
 
     <build>

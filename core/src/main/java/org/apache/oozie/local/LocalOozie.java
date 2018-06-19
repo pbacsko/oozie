@@ -56,16 +56,17 @@ public class LocalOozie {
 
         String log4jFile = System.getProperty(XLogService.LOG4J_FILE, null);
         String oozieLocalLog = System.getProperty("oozielocal.log", null);
-        if (log4jFile == null) {
-            System.setProperty(XLogService.LOG4J_FILE, "localoozie-log4j.properties");
-        }
-        if (oozieLocalLog == null) {
-            System.setProperty("oozielocal.log", "./oozielocal.log");
-        }
+//        if (log4jFile == null) {
+//            System.setProperty(XLogService.LOG4J_FILE, "localoozie-log4j.properties");
+//       }
+//        if (oozieLocalLog == null) {
+//            System.setProperty("oozielocal.log", "./oozielocal.log");
+//        }
 
         localOozieActive = true;
         new Services().init();
 
+/*
         if (log4jFile != null) {
             System.setProperty(XLogService.LOG4J_FILE, log4jFile);
         }
@@ -78,6 +79,7 @@ public class LocalOozie {
         else {
             System.getProperties().remove("oozielocal.log");
         }
+*/
 
         container = new EmbeddedServletContainer("oozie");
         container.addServletEndpoint("/callback", CallbackServlet.class);

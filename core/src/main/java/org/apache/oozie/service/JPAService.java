@@ -133,16 +133,17 @@ public class JPAService implements Service, Instrumentable {
     private BasicDataSource getBasicDataSource() {
         // Get the BasicDataSource object; it could be wrapped in a DecoratingDataSource
         // It might also not be a BasicDataSource if the user configured something different
-        BasicDataSource basicDataSource = null;
-        final OpenJPAEntityManagerFactorySPI spi = (OpenJPAEntityManagerFactorySPI) factory;
-        final Object connectionFactory = spi.getConfiguration().getConnectionFactory();
-        if (connectionFactory instanceof DecoratingDataSource) {
-            final DecoratingDataSource decoratingDataSource = (DecoratingDataSource) connectionFactory;
-            basicDataSource = (BasicDataSource) decoratingDataSource.getInnermostDelegate();
-        } else if (connectionFactory instanceof BasicDataSource) {
-            basicDataSource = (BasicDataSource) connectionFactory;
-        }
-        return basicDataSource;
+//        BasicDataSource basicDataSource = null;
+//        final OpenJPAEntityManagerFactorySPI spi = (OpenJPAEntityManagerFactorySPI) factory;
+//        final Object connectionFactory = spi.getConfiguration().getConnectionFactory();
+//        if (connectionFactory instanceof DecoratingDataSource) {
+//            final DecoratingDataSource decoratingDataSource = (DecoratingDataSource) connectionFactory;
+//            basicDataSource = (BasicDataSource) decoratingDataSource.getInnermostDelegate();
+//        } else if (connectionFactory instanceof BasicDataSource) {
+//            basicDataSource = (BasicDataSource) connectionFactory;
+//        }
+//        return basicDataSource;
+        return null;
     }
 
     /**
@@ -166,7 +167,7 @@ public class JPAService implements Service, Instrumentable {
         final boolean validateDbConn = ConfigurationService.getBoolean(conf, CONF_VALIDATE_DB_CONN);
         final String evictionInterval = ConfigurationService.get(conf, CONF_VALIDATE_DB_CONN_EVICTION_INTERVAL).trim();
         final String evictionNum = ConfigurationService.get(conf, CONF_VALIDATE_DB_CONN_EVICTION_NUM).trim();
-
+        LOG.info("**** JDBC URL: " + url);
         if (!url.startsWith("jdbc:")) {
             throw new ServiceException(ErrorCode.E0608, url, "invalid JDBC URL, must start with 'jdbc:'");
         }

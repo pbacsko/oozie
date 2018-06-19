@@ -242,7 +242,7 @@ public class XLogService implements Service, Instrumentable {
      * Destroy the log service.
      */
     public void destroy() {
-        LogManager.shutdown();
+        // LogManager.shutdown();
         XLog.Info.reset();
         XLogFilter.reset();
     }

@@ -1829,7 +1829,7 @@
                         <version>3.1.1</version>
                     </dependency>
                 </dependencies>
-                <executions>
+              <!--  <executions>
                  <execution>
                     <id>findbug</id>
                     <phase>verify</phase>
@@ -1837,7 +1837,7 @@
                         <goal>check</goal>
                     </goals>
                  </execution>
-             </executions>
+             </executions> -->
             </plugin>
             <!-- xml plugin is used for transforming the findbugs xml output into a friendlier html page -->
             <plugin>
