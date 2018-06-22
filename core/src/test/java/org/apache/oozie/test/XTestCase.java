@@ -28,7 +28,8 @@ import java.io.OutputStream;
 import java.io.IOException;
 import java.net.InetAddress;
 import java.net.URL;
-import java.nio.file.Files;
+import java.sql.DriverManager;
+import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.EnumSet;
@@ -491,6 +492,30 @@ public abstract class XTestCase extends TestCase {
      */
     @Override
     protected void tearDown() throws Exception {
+        final String oozieTestDB = System.getProperty("oozie.test.db", "hsqldb");
+
+        if (oozieTestDB.equalsIgnoreCase("hsqldb")) {
+            try {
+                String jdbcUrl = "jdbc:hsqldb:file:~/oozie-hsqldb-log";
+                java.sql.Connection conn = DriverManager.getConnection(jdbcUrl);
+                Statement statement = conn.createStatement();
+                statement.execute("SHUTDOWN");
+                conn.close();
+            } catch (Exception e) {
+                log.info(e);
+            }
+        }
+
+//        if (oozieTestDB.equalsIgnoreCase("derby")) {
+//            try {
+//                String jdbcUrl = "jdbc:derby:" + testCaseDir + "/oozie-derby;shutdown=true";
+//                java.sql.Connection conn = DriverManager.getConnection(jdbcUrl);
+//                conn.close();
+//            } catch (Exception e) {
+//                log.info(e);
+//            }
+//        }
+
         tearDownHiveServer2();
         tearDownHCatalogServer();
         resetSystemProperties();
