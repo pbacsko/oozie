@@ -24,6 +24,6 @@
     </property>
     <property>
         <name>oozie.service.JPAService.jdbc.url</name>
-        <value>jdbc:derby:${oozie.data.dir}/oozie-derby;create=true</value>
+        <value>jdbc:derby:target/oozie-derby;create=true</value>
     </property>
 </configuration>

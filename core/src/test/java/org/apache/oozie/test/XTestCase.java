@@ -353,6 +353,8 @@ public abstract class XTestCase extends TestCase {
         Services.setOozieHome();
         testCaseConfDir = createTestCaseSubDir("conf");
 
+        System.setProperty("oozie.test.db", "derby");
+
         // load test Oozie site
         final String oozieTestDB = System.getProperty("oozie.test.db", "hsqldb");
         final String oozieSiteFileName = oozieTestDB + "-oozie-site.xml";
