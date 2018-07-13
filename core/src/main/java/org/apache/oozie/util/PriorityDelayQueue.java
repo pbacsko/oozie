@@ -65,6 +65,7 @@ public class PriorityDelayQueue<E> extends AbstractQueue<PriorityDelayQueue.Queu
         private int priority;
         private long baseTime;
         boolean inQueue;
+        private long initialDelay;
 
         /**
          * Create an Element wrapper.
@@ -88,6 +89,7 @@ public class PriorityDelayQueue<E> extends AbstractQueue<PriorityDelayQueue.Queu
             this.element = element;
             this.priority = priority;
             setDelay(delay, unit);
+            this.initialDelay = delay;
         }
 
         /**
@@ -116,6 +118,7 @@ public class PriorityDelayQueue<E> extends AbstractQueue<PriorityDelayQueue.Queu
          */
         public void setDelay(long delay, TimeUnit unit) {
             baseTime = System.currentTimeMillis() + unit.toMillis(delay);
+            initialDelay = delay;
         }
 
         /**
@@ -127,6 +130,10 @@ public class PriorityDelayQueue<E> extends AbstractQueue<PriorityDelayQueue.Queu
          */
         public long getDelay(TimeUnit unit) {
             return unit.convert(baseTime - System.currentTimeMillis(), TimeUnit.MILLISECONDS);
+        }
+
+        public long getInitialDelay() {
+            return initialDelay;
         }
 
         /**

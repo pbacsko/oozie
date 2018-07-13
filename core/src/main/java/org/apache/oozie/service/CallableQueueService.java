@@ -36,9 +36,11 @@ import java.util.concurrent.RunnableFuture;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 
 import org.apache.hadoop.conf.Configuration;
 import org.apache.oozie.client.OozieClient.SYSTEM_MODE;
+import org.apache.oozie.service.CallableQueueService.CallableWrapper;
 import org.apache.oozie.util.Instrumentable;
 import org.apache.oozie.util.Instrumentation;
 import org.apache.oozie.util.NamedThreadFactory;
@@ -72,7 +74,7 @@ import com.google.common.collect.ImmutableSet;
  * execution of Commands via a ThreadPool. Sets up a Delayed Queue to handle actions which will be ready for execution
  * sometime in the future.
  */
-public class CallableQueueService implements Service, Instrumentable {
+public class CallableQueueService implements Service, Instrumentable, CallableAccess {
     private static final String INSTRUMENTATION_GROUP = "callablequeue";
     private static final String INSTR_IN_QUEUE_TIME_TIMER = "time.in.queue";
     private static final String INSTR_EXECUTED_COUNTER = "executed";
@@ -116,7 +118,13 @@ public class CallableQueueService implements Service, Instrumentable {
             }
             else {
                 int i = counter.incrementAndGet();
-                return i <= maxCallableConcurrency;
+                boolean result = i <= maxCallableConcurrency;
+                if (!result) {
+                    // log.warn("Cannot run command: " + callable + " - concurrency is " + i);
+                } else {
+                    // log.info("Callable " + callable + " is running, concurrency = " + i);
+                }
+                return result;
             }
         }
     }
@@ -130,6 +138,11 @@ public class CallableQueueService implements Service, Instrumentable {
             else {
                 counter.decrementAndGet();
             }
+
+            if (!oldImpl) {
+                asyncXCommandExecutor.commandFinished();
+                asyncXCommandExecutor.checkMaxConcurrency(callable.getType());
+            }
         }
     }
 
@@ -142,6 +155,42 @@ public class CallableQueueService implements Service, Instrumentable {
             else {
                 int i = counter.get();
                 return i < maxCallableConcurrency;
+            }
+        }
+    }
+
+    @Override
+    public boolean canSubmitCallable(XCallable<?> callable) {
+        synchronized (activeCallables) {
+            AtomicInteger counter = activeCallables.get(callable.getType());
+            if (counter == null) {
+                counter = new AtomicInteger(1);
+                activeCallables.put(callable.getType(), counter);
+                return true;
+            }
+            else {
+                int i = counter.get();
+                return i <= maxCallableConcurrency;
+            }
+        }
+    }
+
+    @Override
+    public boolean handleMaxConcurrencyIfNeeded(CallableWrapper<?> wrapper) {
+        XCallable<?> callable = wrapper.getElement();
+        synchronized (activeCallables) {
+            AtomicInteger counter = activeCallables.get(callable.getType());
+            if (counter == null) {
+                return true;
+            }
+            else {
+                int i = counter.get();
+                if (i < maxCallableConcurrency) {
+                    return true;
+                } else {
+                    asyncXCommandExecutor.handleConcurrencyExceeded(wrapper);
+                    return false;
+                }
             }
         }
     }
@@ -417,6 +466,8 @@ public class CallableQueueService implements Service, Instrumentable {
     private PriorityDelayQueue<CallableWrapper> queue;
     private ThreadPoolExecutor executor;
     private Instrumentation instrumentation;
+    private boolean oldImpl = false;
+    private AsyncXCommandExecutor asyncXCommandExecutor;
 
     /**
      * Convenience method for instrumentation counters.
@@ -446,7 +497,7 @@ public class CallableQueueService implements Service, Instrumentable {
     public void init(Services services) {
         Configuration conf = services.getConf();
 
-        queueSize = ConfigurationService.getInt(conf, CONF_QUEUE_SIZE);
+        queueSize = 1_000_000; // ConfigurationService.getInt(conf, CONF_QUEUE_SIZE);
         int threads = ConfigurationService.getInt(conf, CONF_THREADS);
         boolean callableNextEligible = ConfigurationService.getBoolean(conf, CONF_CALLABLE_NEXT_ELIGIBLE);
 
@@ -504,16 +555,25 @@ public class CallableQueueService implements Service, Instrumentable {
         // minimum size equals to the maximum size (thus threads are keep always
         // running) and we are warming up
         // all those threads (the for loop that runs dummy runnables).
-        executor = new ThreadPoolExecutor(threads, threads, 10, TimeUnit.SECONDS, (BlockingQueue) queue,
-                new NamedThreadFactory("CallableQueue")) {
-            protected void beforeExecute(Thread t, Runnable r) {
-                super.beforeExecute(t,r);
-                XLog.Info.get().clear();
-            }
-            protected <T> RunnableFuture<T> newTaskFor(Callable<T> callable) {
-                return (RunnableFuture<T>)callable;
-            }
-        };
+
+        oldImpl = ConfigurationService.getBoolean("oozie.service.CallableQueueService.queue.oldImpl", false);
+
+        if (oldImpl) {
+            executor = new ThreadPoolExecutor(threads, threads, 10, TimeUnit.SECONDS, (BlockingQueue) queue,
+                    new NamedThreadFactory("CallableQueue")) {
+                protected void beforeExecute(Thread t, Runnable r) {
+                    super.beforeExecute(t,r);
+                    XLog.Info.get().clear();
+                }
+                protected <T> RunnableFuture<T> newTaskFor(Callable<T> callable) {
+                    return (RunnableFuture<T>)callable;
+                }
+            };
+        } else {
+            asyncXCommandExecutor = new AsyncXCommandExecutor(threads, callableNextEligible, this, queueSize);
+
+            executor = asyncXCommandExecutor.getExecutorService();
+        }
 
         for (int i = 0; i < threads; i++) {
             executor.execute(new Runnable() {
@@ -547,6 +607,10 @@ public class CallableQueueService implements Service, Instrumentable {
                     break;
                 }
             }
+
+            if (!oldImpl) {
+                asyncXCommandExecutor.shutdown();
+            }
         }
         catch (InterruptedException ex) {
             log.warn(ex);
@@ -567,29 +631,34 @@ public class CallableQueueService implements Service, Instrumentable {
      * @return int size of queue
      */
     public synchronized int queueSize() {
-        return queue.size();
+        return oldImpl ? queue.size() : asyncXCommandExecutor.getSize();
     }
 
-    private synchronized boolean queue(CallableWrapper wrapper, boolean ignoreQueueSize) {
-        if (!ignoreQueueSize && queue.size() >= queueSize) {
-            log.warn("queue full, ignoring queuing for [{0}]", wrapper.getElement().getKey());
-            return false;
-        }
-        if (!executor.isShutdown()) {
-            if (wrapper.filterDuplicates()) {
-                wrapper.addToUniqueCallables();
-                try {
-                    executor.execute(wrapper);
-                }
-                catch (Throwable ree) {
-                    wrapper.removeFromUniqueCallables();
-                    throw new RuntimeException(ree);
+    private synchronized boolean queue(CallableWrapper<?> wrapper, boolean ignoreQueueSize) {
+        if (oldImpl) {
+            if (!ignoreQueueSize && queue.size() >= queueSize) {
+                log.warn("queue full, ignoring queuing for [{0}]", wrapper.getElement().getKey());
+                return false;
+            }
+            if (!executor.isShutdown()) {
+                if (wrapper.filterDuplicates()) {
+                    wrapper.addToUniqueCallables();
+                    try {
+                        executor.execute(wrapper);
+                    }
+                    catch (Throwable ree) {
+                        wrapper.removeFromUniqueCallables();
+                        throw new RuntimeException(ree);
+                    }
                 }
             }
+            else {
+                log.warn("Executor shutting down, ignoring queueing of [{0}]", wrapper.getElement().getKey());
+            }
+        } else {
+            asyncXCommandExecutor.queue(wrapper, ignoreQueueSize);
         }
-        else {
-            log.warn("Executor shutting down, ignoring queueing of [{0}]", wrapper.getElement().getKey());
-        }
+
         return true;
     }
 
@@ -762,14 +831,18 @@ public class CallableQueueService implements Service, Instrumentable {
      * @return the list of string that representing each CallableWrapper
      */
     public List<String> getQueueDump() {
-        List<String> list = new ArrayList<String>();
-        for (QueueElement<CallableWrapper> qe : queue) {
-            if (qe.toString() == null) {
-                continue;
+        if (oldImpl) {
+            List<String> list = new ArrayList<String>();
+            for (QueueElement<CallableWrapper> qe : queue) {
+                if (qe.toString() == null) {
+                    continue;
+                }
+                list.add(qe.toString());
             }
-            list.add(qe.toString());
+            return list;
+        } else {
+            return asyncXCommandExecutor.getQueueDump();
         }
-        return list;
     }
 
     /**
@@ -794,5 +867,4 @@ public class CallableQueueService implements Service, Instrumentable {
     public Set<String> getInterruptTypes() {
         return interruptTypes;
     }
-
 }

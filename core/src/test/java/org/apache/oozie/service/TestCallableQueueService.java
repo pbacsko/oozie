@@ -25,16 +25,29 @@ import org.apache.oozie.command.PreconditionException;
 import org.apache.oozie.command.XCommand;
 import org.apache.oozie.test.XTestCase;
 import org.apache.oozie.util.XCallable;
+import org.apache.oozie.util.XLog;
+
+import com.google.common.collect.ArrayListMultimap;
+import com.google.common.collect.Multimap;
+import com.google.common.collect.Multimaps;
 
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Random;
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 
 public class TestCallableQueueService extends XTestCase {
     static AtomicLong EXEC_ORDER = new AtomicLong();
+    private static XLog log = XLog.getLog(TestCallableQueueService.class);
 
     public static class MyCallable implements XCallable<Void> {
         String type;
@@ -93,6 +106,8 @@ public class TestCallableQueueService extends XTestCase {
             StringBuilder sb = new StringBuilder();
             sb.append("Type:").append(getType());
             sb.append(",Priority:").append(getPriority());
+            sb.append(",Key:").append(getKey());
+            sb.append(",Wait:").append(wait);
             return sb.toString();
         }
 
@@ -409,20 +424,35 @@ public class TestCallableQueueService extends XTestCase {
             queueservice.queue(c, 10);
         }
 
-        float originalRatio = XTestCase.WAITFOR_RATIO;
-        try{
-            XTestCase.WAITFOR_RATIO = 1;
-            waitFor(2000, new Predicate() {
-                public boolean evaluate() throws Exception {
-                    return queueservice.queueSize() == 0;
-                }
-            });
-        }
-        finally {
-            XTestCase.WAITFOR_RATIO = originalRatio;
-        }
+//        float originalRatio = XTestCase.WAITFOR_RATIO;
+//        try{
+//            XTestCase.WAITFOR_RATIO = 1;
+//            waitFor(2000, new Predicate() {
+//                public boolean evaluate() throws Exception {
+//                    return queueservice.queueSize() == 0;
+//                }
+//            });
+//        }
+//        finally {
+//            XTestCase.WAITFOR_RATIO = originalRatio;
+//        }
+//
+//        System.out.println("Callable Queue Size :" + queueservice.queueSize());
+        waitFor(3000, new Predicate() {
+            public boolean evaluate() throws Exception {
+                boolean completed = true;
 
-        System.out.println("Callable Queue Size :" + queueservice.queueSize());
+                for (MyCallable callable : callables) {
+                    completed &= (callable.executed != 0);
+                }
+
+                completed &= (callableOther.executed != 0);
+
+                return completed;
+            }
+        });
+
+        //Thread.sleep(2000);
 
         long last = Long.MIN_VALUE;
         for (MyCallable c : callables) {
@@ -927,5 +957,324 @@ public class TestCallableQueueService extends XTestCase {
         List<String> uniquesAfter = queueservice.getUniqueDump();
         uniquesAfter.removeAll(uniquesBefore);
         assertTrue(uniquesAfter.toString(), uniquesAfter.isEmpty());
+    }
+
+    // Example tests - Needs cleanup
+    AtomicLong counter = new AtomicLong();
+    CountDownLatch finished = new CountDownLatch(1);
+    private static final int TASK_COUNT = 1_000_000;
+
+    // Peformance tests that can be removed
+
+    public void testExecutorThroughput() throws InterruptedException {
+        List<DummyCallable> callables = new ArrayList<>(TASK_COUNT);
+        for (int i = 0; i < TASK_COUNT; i++) {
+            String keyAndType = String.valueOf(i);
+            DummyCallable dc = new DummyCallable(keyAndType, keyAndType, 0, 0);
+            callables.add(dc);
+        }
+
+        CallableQueueService queueservice = Services.get().get(CallableQueueService.class);
+
+        long start = System.nanoTime();
+        for (int i = 0; i < TASK_COUNT; i++) {
+            queueservice.queue(callables.get(i));
+        }
+
+        finished.await();
+        long finish = System.nanoTime();
+
+        log.info("***** Test took " + TimeUnit.NANOSECONDS.toMillis(finish - start) + " msec");
+    }
+
+    public void testExecutorThroughput20msDelay() throws InterruptedException {
+        List<DummyCallable> callables = new ArrayList<>(TASK_COUNT);
+        for (int i = 0; i < TASK_COUNT; i++) {
+            String keyAndType = String.valueOf(i);
+            DummyCallable dc = new DummyCallable(keyAndType, keyAndType, 0, 0);
+            callables.add(dc);
+        }
+
+        CallableQueueService queueservice = Services.get().get(CallableQueueService.class);
+
+        long start = System.nanoTime();
+        for (int i = 0; i < TASK_COUNT; i++) {
+            queueservice.queue(callables.get(i), 20);
+        }
+
+        finished.await();
+        long finish = System.nanoTime();
+
+        log.info("***** Test took " + TimeUnit.NANOSECONDS.toMillis(finish - start) + " msec");
+    }
+
+    public void testExecutorThroughputWithDifferentPriorities() throws InterruptedException {
+        List<DummyCallable> callables = new ArrayList<>(TASK_COUNT);
+        int[] prio = {0, 1, 2};
+        int currentPrio = 0;
+
+        for (int i = 0; i < TASK_COUNT; i++) {
+            String keyAndType = String.valueOf(i);
+            DummyCallable dc = new DummyCallable(keyAndType, keyAndType, prio[currentPrio], 0);
+            currentPrio = currentPrio++ % 3;
+            callables.add(dc);
+        }
+
+        CallableQueueService queueservice = Services.get().get(CallableQueueService.class);
+
+        long start = System.nanoTime();
+        for (int i = 0; i < TASK_COUNT; i++) {
+            queueservice.queue(callables.get(i));
+        }
+
+        finished.await();
+        long finish = System.nanoTime();
+
+        log.info("***** Test took " + TimeUnit.NANOSECONDS.toMillis(finish - start) + " msec");
+    }
+
+    public void testExecutorThroughputWithDifferentPrioritiesAndRandomDelays() throws InterruptedException {
+        List<DummyCallable> callables = new ArrayList<>(TASK_COUNT);
+        int[] prio = {0, 1, 2};
+        int currentPrio = 0;
+        Random rnd = new Random();
+
+        for (int i = 0; i < TASK_COUNT; i++) {
+            String keyAndType = String.valueOf(i);
+            DummyCallable dc = new DummyCallable(keyAndType, keyAndType, prio[currentPrio], 0);
+            currentPrio = currentPrio++ % 3;
+            callables.add(dc);
+        }
+
+        CallableQueueService queueservice = Services.get().get(CallableQueueService.class);
+
+        long start = System.nanoTime();
+        for (int i = 0; i < TASK_COUNT; i++) {
+            queueservice.queue(callables.get(i), rnd.nextInt(10));
+        }
+
+        finished.await();
+        long finish = System.nanoTime();
+
+        log.info("***** Test took " + TimeUnit.NANOSECONDS.toMillis(finish - start) + " msec");
+    }
+
+    // True unit tests that can be kept
+
+    public void testPriorityExecutionOrder() throws InterruptedException, ServiceException {
+        Services.get().destroy();
+        setSystemProperty(CallableQueueService.CONF_THREADS, "1");
+        new Services().init();
+
+        final int taskCount = 999_999;
+        Multimap<Integer, Long> executions = Multimaps.synchronizedMultimap(ArrayListMultimap.create());
+        List<BookingCallable> callables = new ArrayList<>(taskCount);
+
+        for (int i = 2; i >= 0; i--) {
+            String type = String.valueOf(i);
+            for (int j = 0; j < 333_333; j++) {
+                String key = type + "_" + UUID.randomUUID().toString();
+                BookingCallable dc = new BookingCallable(executions, taskCount, key, type, i, 0);
+                callables.add(dc);
+            }
+        }
+
+        CallableQueueService queueservice = Services.get().get(CallableQueueService.class);
+
+        for (int i = 0; i < taskCount; i++) {
+            queueservice.queue(callables.get(i));
+        }
+
+        finished.await();
+
+        Map<Integer, Long> minTime = new HashMap<>();
+        Map<Integer, Long> maxTime = new HashMap<>();
+
+        for (Map.Entry<Integer, Collection<Long>> entry : executions.asMap().entrySet()) {
+            int prio = entry.getKey();
+            Collection<Long> values = entry.getValue();
+            minTime.put(prio, Collections.min(values));
+            maxTime.put(prio, Collections.max(values));
+        }
+
+        // Expected timeline of execution times:
+        // --> [min] Prio #2 [max] --> [min] Prio #1 [max] --> [min] Prio #0 [max]
+
+        assertTrue("Failed: maxTime prio #2: " + maxTime.get(2) + " / minTime prio #1: " + minTime.get(1),
+                maxTime.get(2) <= minTime.get(1));
+        assertTrue("Failed: maxTime prio #1: " + maxTime.get(1) + " / minTime prio #0: " + minTime.get(0),
+                maxTime.get(1) <= minTime.get(0));
+    }
+
+    public void testMaxConcurrencyReached() throws InterruptedException {
+        int partitions = 10;
+        int taskPerPartition = 1000;
+
+        final int taskCount = partitions * taskPerPartition;
+
+        List<DummyCallable> callables = new ArrayList<>(taskCount);
+
+        for (int i = 0; i < partitions; i++) {
+            String type = String.valueOf(i);
+            for (int j = 0; j < taskPerPartition; j++) {
+                String key = type + "_" + UUID.randomUUID().toString();
+                DummyCallable dc = new DummyCallable(taskCount, key, type, 0, 0);
+                callables.add(dc);
+            }
+        }
+
+        CallableQueueService queueservice = Services.get().get(CallableQueueService.class);
+
+        for (int i = 0; i < taskCount; i++) {
+            queueservice.queue(callables.get(i));
+        }
+
+        try {
+            finished.await(10, TimeUnit.SECONDS);
+        } catch (Exception e) {
+            log.error("Error", e);
+        }
+
+        assertEquals("Not all callables have been executed", counter.get(), taskCount);
+    }
+
+    public void testQueueSizeWithDelayedElements() throws InterruptedException {
+        final int taskCount = 10_000;
+
+        List<DummyCallable> callables = new ArrayList<>(taskCount);
+        for (int i = 0; i < taskCount; i++) {
+            String keyAndType = String.valueOf(i);
+            DummyCallable dc = new DummyCallable(taskCount, keyAndType, keyAndType, 0, 0);
+            callables.add(dc);
+        }
+
+        CallableQueueService queueservice = Services.get().get(CallableQueueService.class);
+
+        for (int i = 0; i < taskCount; i++) {
+            queueservice.queue(callables.get(i), 2000);
+        }
+
+        int queueSizeAfterSubmission = queueservice.queueSize();
+
+        finished.await();
+
+        assertEquals("Queue size after submission", taskCount, queueSizeAfterSubmission);
+        assertEquals("Queue size after execution", 0, queueservice.queueSize());
+    }
+
+    public void testQueueSizeAfterNormalSubmission() throws InterruptedException {
+        final int taskCount = 10_000;
+
+        List<DummyCallable> callables = new ArrayList<>(taskCount);
+        for (int i = 0; i < taskCount; i++) {
+            String keyAndType = String.valueOf(i);
+            DummyCallable dc = new DummyCallable(taskCount, keyAndType, keyAndType, 0, 0);
+            callables.add(dc);
+        }
+
+        CallableQueueService queueservice = Services.get().get(CallableQueueService.class);
+
+        for (int i = 0; i < taskCount; i++) {
+            queueservice.queue(callables.get(i));
+        }
+
+        // Not an exact number - it's close to 10,000 but keeps fluctuating
+        // We can still verify that it's larger than a certain number though
+        int queueSizeAfterSubmission = queueservice.queueSize();
+        finished.await();
+        waitFor(1000, new Predicate() {
+            @Override
+            public boolean evaluate() throws Exception {
+                return queueservice.queueSize() == 0;
+            }
+        });
+
+        assertTrue("Too few elements in the queue: " + queueSizeAfterSubmission + ", should be >9000",
+                queueSizeAfterSubmission > 9000);
+        assertEquals("Queue size after execution", 0, queueservice.queueSize());
+    }
+
+    public void testQueueSizeWhenMaxConcurrencyIsReached() throws InterruptedException {
+        int partitions = 10;
+        int taskPerPartition = 1000;
+
+        final int taskCount = partitions * taskPerPartition;
+
+        List<DummyCallable> callables = new ArrayList<>(taskCount);
+
+        for (int i = 0; i < partitions; i++) {
+            String type = String.valueOf(i);
+            for (int j = 0; j < taskPerPartition; j++) {
+                String key = type + "_" + UUID.randomUUID().toString();
+                DummyCallable dc = new DummyCallable(taskCount, key, type, 0, 0);
+                callables.add(dc);
+            }
+        }
+
+        CallableQueueService queueservice = Services.get().get(CallableQueueService.class);
+
+        for (int i = 0; i < taskCount; i++) {
+            queueservice.queue(callables.get(i));
+        }
+
+        // Not an exact number - it's close to 10,000 but keeps fluctuating
+        // We can still verify that it's larger than a certain number though
+        int queueSizeAfterSubmission = queueservice.queueSize();
+        finished.await();
+        waitFor(1000, new Predicate() {
+            @Override
+            public boolean evaluate() throws Exception {
+                return queueservice.queueSize() == 0;
+            }
+        });
+
+        assertTrue("Too few elements in the queue: " + queueSizeAfterSubmission + ", should be >9000",
+                queueSizeAfterSubmission > 9000);
+        assertEquals("Queue size after execution", 0, queueservice.queueSize());
+    }
+
+    private class DummyCallable extends MyCallable {
+        private final int taskCount;
+
+        public DummyCallable(String key, String type, int priority, int wait) {
+            super(key, type, priority, wait);
+            this.taskCount = TASK_COUNT;
+        }
+
+        public DummyCallable(int taskCount, String key, String type, int priority, int wait) {
+            super(key, type, priority, wait);
+            this.taskCount = taskCount;
+        }
+
+        public Void call() throws Exception {
+            if (counter.incrementAndGet() == taskCount) {
+                finished.countDown();
+            }
+            return null;
+        }
+    }
+
+    private class BookingCallable extends MyCallable {
+        private final int taskCount;
+        private final Multimap<Integer, Long> executions;
+
+        public BookingCallable(Multimap<Integer, Long> executions,
+                int taskCount,
+                String key,
+                String type,
+                int priority,
+                int wait) {
+            super(key, type, priority, wait);
+            this.taskCount = taskCount;
+            this.executions = executions;
+        }
+
+        public Void call() throws Exception {
+            executions.put(getPriority(), System.currentTimeMillis());
+            if (counter.incrementAndGet() == taskCount) {
+                finished.countDown();
+            }
+            return null;
+        }
     }
 }
